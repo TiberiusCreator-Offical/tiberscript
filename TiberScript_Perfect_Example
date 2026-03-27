@@ -1,0 +1,559 @@
+// A comprehensive TiberScript example showcasing ALL features.
+// Created by TiberiusGBT AI Assistant.
+
+// --- 1. Global Configuration (using a 'data' block) ---
+// Data blocks are excellent for defining static game data,
+// making it easy to configure your game in one place.
+game_config = data
+  title = "Tiberian Odyssey"
+  version = "1.0.0"
+  initial_player_hp = 100
+  player_move_speed = 3
+  enemy_damage = 10
+  heal_potion_amount = 25
+  max_crystals = 5
+  // Audio assets (assuming these are loaded in microStudio's assets)
+  music_main_theme = "main_theme_tune"
+  sfx_hit = "hit_sound"
+  sfx_collect = "collect_sound"
+  sfx_heal = "heal_sound"
+  sfx_victory = "victory_fanfare"
+  sfx_game_over = "game_over_buzz"
+  sfx_save = "save_game_chime"
+  sfx_risky_action = "risky_beep"
+  sfx_risky_fail = "fail_sound"
+end
+
+// --- 2. Player Archetype (OOP with Inheritance and Tags) ---
+// Archetypes are TiberScript's way of defining classes/blueprints for game objects.
+// 'mark()' is used for collision and proximity detection.
+player_archetype = archetype
+  // Constructor: 'init()' is called when a new instance is created.
+  init(name_given) = function
+    this.name = name_given
+    this.hp = game_config.initial_player_hp
+    this.x = 100
+    this.y = 100
+    this.score = 0
+    this.crystals_found = 0
+    this.inventory = ["Heal Potion", "Heal Potion"] // A simple list for inventory
+    this.last_damaged_time = 0 // For visual feedback
+    this.mark("player") // Tag this object for collision/proximity checks
+    print("Player '" + this.name + "' created with " + this.hp + " HP.")
+  end
+
+  // Player movement logic (using 'key().held')
+  move() = function
+    local moved = false
+    if key("arrowRight").held then this.x += game_config.player_move_speed; moved = true end
+    if key("arrowLeft").held then this.x -= game_config.player_move_speed; moved = true end
+    if key("arrowUp").held then this.y -= game_config.player_move_speed; moved = true end
+    if key("arrowDown").held then this.y += game_config.player_move_speed; moved = true end
+    // Clamp player position to screen bounds (using the 'clamp' math helper)
+    this.x = clamp(this.x, 20, screen.width - 20)
+    this.y = clamp(this.y, 20, screen.height - 20)
+    return moved
+  end
+
+  // Interaction logic
+  interact() = function
+    // Check for nearby interactable objects (using 'near()')
+    local npc = near("npc", 50)
+    if npc then
+      screen.text("Press [E] to talk to " + npc.name, screen.width / 2, screen.height - 50, 20, "white", "center")
+      if key("e").hit then
+        sfx("button_press")
+        print("Player talked to " + npc.name)
+        npc.talk() // Call the NPC's talk method
+      end
+    end
+  end
+
+  // Apply damage and handle visual feedback
+  take_damage(amount) = function
+    this.hp = this.hp - amount
+    sfx(game_config.sfx_hit)
+    // Emit particles for visual effect (like blood or sparks)
+    emit("impact_particles", this.x + random(-10,10), this.y + random(-10,10), 3)
+    this.last_damaged_time = system.time() // Mark time for visual effect
+    print(this.name + " took " + amount + " damage. HP: " + this.hp)
+    if this.hp <= 0 then
+      transit("gameOver") // Switch game state on death
+    end
+  end
+
+  // Use a healing potion
+  use_potion() = function
+    local potion_index = this.inventory.indexOf("Heal Potion")
+    if potion_index >= 0 and this.hp < game_config.initial_player_hp then
+      this.inventory.removeAt(potion_index)
+      this.hp = min(this.hp + game_config.heal_potion_amount, game_config.initial_player_hp)
+      sfx(game_config.sfx_heal)
+      emit("heal_particles", this.x, this.y, 10)
+      print(this.name + " used a potion. HP: " + this.hp)
+    elsif potion_index < 0 then
+      print("No healing potions left!")
+    else
+      print("Already at full health!")
+    end
+  end
+
+  // Save game progress (using 'access' block)
+  save_progress() = function
+    access "crystal_quest_save" as file do
+      file.player_name = this.name
+      file.player_hp = this.hp
+      file.player_x = this.x
+      file.player_y = this.y
+      file.player_score = this.score
+      file.crystals_found = this.crystals_found
+      file.inventory = JSON.stringify(this.inventory) // Save list as JSON string
+      print("Game saved!")
+      sfx(game_config.sfx_save)
+    end
+  end
+
+  // Load game progress
+  load_progress() = function
+    if exists("crystal_quest_save") then
+      access "crystal_quest_save" as file do
+        this.name = file.player_name
+        this.hp = file.player_hp
+        this.x = file.player_x
+        this.y = file.player_y
+        this.score = file.player_score
+        this.crystals_found = file.crystals_found
+        this.inventory = JSON.parse(file.inventory)
+        print("Game loaded!")
+        sfx(game_config.sfx_save) // Same sound for load confirmation
+      end
+    else
+      print("No save file found!")
+    end
+  end
+
+  // Draw player
+  draw() = function
+    // 'alter' block for temporary visual effects (e.g., flash when damaged)
+    local flash_duration = 0.2 // seconds
+    if system.time() - this.last_damaged_time < flash_duration then
+      // Use 'alter' to change drawing properties temporarily
+      alter color="red", opacity=0.7, scale=1.2 do
+        screen.sprite("player_sprite", this.x, this.y, 32)
+      end
+    else
+      screen.sprite("player_sprite", this.x, this.y, 32)
+    end
+    screen.text("HP: " + this.hp, this.x, this.y + 20, 15, "white", "center")
+  end
+end
+
+// --- 3. Enemy Archetype ---
+enemy_archetype = archetype
+  init(id_num) = function
+    this.id = "Enemy " + id_num
+    this.x = random(50, screen.width - 50)
+    this.y = random(50, screen.height - 50)
+    this.speed = random(1, 2)
+    this.mark("enemy") // Tag for collision
+    this.alive = true
+  end
+
+  // Simple enemy AI (moves towards player)
+  update(target_x, target_y) = function
+    if not this.alive then return end
+
+    if distance(this.x, this.y, target_x, target_y) < 150 then
+      // Move towards player
+      if this.x < target_x then this.x += this.speed end
+      if this.x > target_x then this.x -= this.speed end
+      if this.y < target_y then this.y += this.speed end
+      if this.y > target_y then this.y -= this.speed end
+
+      // Collide with player and deal damage
+      local p = collide("player") // Check collision with any object marked "player"
+      if p then
+        p.take_damage(game_config.enemy_damage)
+        // Push enemy back
+        local angle = atan2(this.y - p.y, this.x - p.x)
+        this.x += cos(angle) * 10
+        this.y += sin(angle) * 10
+        print(this.id + " attacked player.")
+      end
+    end
+  end
+
+  // Draw enemy
+  draw() = function
+    if not this.alive then return end
+    screen.sprite("enemy_sprite", this.x, this.y, 28)
+  end
+
+  // Remove enemy from game (using 'vanish()')
+  die() = function
+    print(this.id + " vanquished!")
+    emit("explosion_particles", this.x, this.y, 20)
+    sfx("enemy_explode")
+    this.alive = false
+    this.vanish() // Removes object from active collision/near checks
+  end
+end
+
+// --- 4. Crystal Archetype (Collectible Item) ---
+crystal_archetype = archetype
+  init(cx, cy) = function
+    this.x = cx
+    this.y = cy
+    this.mark("collectible") // Tag for player to collect
+    this.collected = false
+    this.wave_offset = random(0, PI * 2) // For floating animation
+  end
+
+  // Draw crystal with a floating effect (using 'wave' math helper)
+  draw() = function
+    if this.collected then return end
+    // 'wave' function creates a smooth oscillating value for animation
+    local float_y = this.y + wave(system.time() * 2, 5) // Wave for floating effect
+    alter scale=1 + wave(system.time() * 4, 0.05), opacity=0.9 do
+      screen.sprite("crystal_sprite", this.x, float_y, 20)
+    end
+  end
+
+  // Logic when collected
+  collect(collector) = function
+    if this.collected then return end
+    this.collected = true
+    collector.score += 100
+    collector.crystals_found += 1
+    sfx(game_config.sfx_collect)
+    emit("sparkle_particles", this.x, this.y, 8)
+    print("Crystal collected! Score: " + collector.score)
+    this.vanish() // Remove crystal from collision checks
+  end
+end
+
+// --- 5. NPC Archetype (Extended from a generic character) ---
+// Demonstrates archetype extension/inheritance
+character_archetype = archetype
+  init(name, x, y) = function
+    this.name = name
+    this.x = x
+    this.y = y
+    this.mark("interactable")
+  end
+  talk() = function
+    // Base talk method
+    print(this.name + " says: 'Hello, traveler!'")
+  end
+  draw() = function
+    screen.sprite("npc_base_sprite", this.x, this.y, 30)
+    screen.drawText(this.name, this.x, this.y - 20, 15, "#ADD8E6", "center")
+  end
+end
+
+quest_giver_npc = archetype extends character_archetype
+  init() = function
+    super.init("Elder Tim", 300, 200) // Call parent constructor
+    this.quest_given = false
+    this.mark("npc") // Also mark as NPC for player interaction
+  end
+
+  talk() = function
+    if not this.quest_given then
+      print(this.name + " says: 'Brave adventurer, the Crystal of Harmony has been shattered!")
+      print("Collect " + game_config.max_crystals + " crystal shards to restore balance!'")
+      this.quest_given = true
+      // Schedule a reminder after 10 seconds (using 'schedule' block)
+      schedule(60 * 10) = function // 60 frames/sec * 10 sec
+        if global.player.crystals_found < game_config.max_crystals then
+          print(this.name + " whispers: 'Keep searching for those crystals!'")
+        end
+      end
+    elsif global.player.crystals_found >= game_config.max_crystals then
+      print(this.name + " says: 'You've collected all the crystals! The world is saved!'")
+      transit("win") // Transition to win state
+    else
+      print(this.name + " says: 'You still need " + (game_config.max_crystals - global.player.crystals_found) + " crystals!'")
+    end
+  end
+end
+
+// --- 6. Game State Variables ---
+// These are global variables accessible throughout the script.
+// In a full game, these would be managed more formally.
+player = null
+enemies = []
+crystals = []
+npcs = []
+game_state = "menu" // Initial state
+
+// --- 7. Utility Functions ---
+// Simple distance function
+distance = function(x1, y1, x2, y2)
+  local dx = x2 - x1
+  local dy = y2 - y1
+  return sqrt(dx*dx + dy*dy)
+end
+
+// --- 8. Game Initialization Function ---
+init() = function
+  player = new player_archetype("Hero")
+  // Create some enemies
+  for i = 1 to 3
+    enemies.push(new enemy_archetype(i))
+  end
+  // Create some crystals
+  crystals.push(new crystal_archetype(50, 50))
+  crystals.push(new crystal_archetype(screen.width - 50, 50))
+  crystals.push(new crystal_archetype(50, screen.height - 50))
+  crystals.push(new crystal_archetype(screen.width - 50, screen.height - 50))
+  crystals.push(new crystal_archetype(screen.width / 2, screen.height / 2))
+
+  // Create NPCs
+  npcs.push(new quest_giver_npc())
+
+  // Start background music (using 'tune()')
+  tune(game_config.music_main_theme, 0.6, true) // Tune, volume, loop
+
+  print("Game initialized. Welcome to " + game_config.title + "!")
+  transit("menu") // Ensure we start in the menu state
+end
+
+// --- 9. Game Update Loop (Heart of the Game Logic) ---
+update() = function
+  // 'during' blocks manage logic specific to each game state.
+  // This prevents "spaghetti code" where logic for different states
+  // is mixed with 'if state == X' checks.
+
+  // --- Menu State ---
+  during "menu" do
+    screen.clear("#000033") // Dark blue background
+    screen.drawText(game_config.title, screen.width / 2, screen.height / 3, 40, "gold", "center")
+    screen.drawText("Press [SPACE] to Start", screen.width / 2, screen.height / 2, 25, "white", "center")
+    screen.drawText("Press [L] to Load Game", screen.width / 2, screen.height / 2 + 40, 20, "lightblue", "center")
+
+    if key("space").hit then
+      sfx("menu_select")
+      print("Starting new game...")
+      transit("game") // Transition to the main game state
+    end
+    if key("l").hit then
+      sfx("menu_select")
+      player.load_progress()
+      transit("game")
+    end
+  end
+
+  // --- Game Play State ---
+  during "game" do
+    screen.clear("rgb(20, 30, 40)") // A subtle dark background
+
+    // --- Player Logic ---
+    player.move()
+    player.interact()
+
+    // Heal potion usage
+    if key("h").hit then
+      player.use_potion()
+    end
+
+    // Save game
+    if key("s").hit then
+      player.save_progress()
+    end
+
+    // Pause game
+    if key("p").hit then
+      sfx("pause_toggle")
+      transit("paused")
+    end
+
+    // --- Collision Detection & Interaction ---
+    local collected_crystal = collide("collectible") // Check for crystal collision
+    if collected_crystal then
+      collected_crystal.collect(player)
+    end
+
+    // Check for win condition
+    if player.crystals_found >= game_config.max_crystals then
+      transit("win")
+    end
+
+    // --- Enemy Logic ---
+    for e in enemies
+      e.update(player.x, player.y) // Pass player's position for AI target
+    end
+
+    // --- NPCs Logic ---
+    for n in npcs
+      // No specific update logic for simple NPCs here, but they would go here.
+    end
+
+    // --- Risky Action with Error Handling (attempt/recover) ---
+    screen.drawText("Press [R] for risky action", 10, screen.height - 30, 15, "orange")
+    if key("r").hit then
+      sfx(game_config.sfx_risky_action)
+      print("Attempting risky action...")
+      attempt
+        // Simulate a risky operation that might fail
+        local chance = random(100)
+        if chance < 30 then // 30% chance of failure
+          // Simulate an error by trying to access a non-existent property
+          local x = undefined_variable.value
+        end
+        player.score += 500
+        print("Risky action succeeded! +500 Score!")
+      recover
+        // This block runs if an error occurs in the 'attempt' block
+        print("Risky action failed! Oh no!")
+        sfx(game_config.sfx_risky_fail)
+        player.take_damage(20) // Consequence of failure
+      end
+    end
+
+    // --- Visuals and Drawing ---
+    // 'view' block for camera management.
+    // The camera will center on the player's position.
+    view x=player.x, y=player.y, scale=1.0 do
+      // Draw everything within the camera's view
+      player.draw()
+      for e in enemies
+        e.draw()
+      end
+      for c in crystals
+        c.draw()
+      end
+      for n in npcs
+        n.draw()
+      end
+    end
+
+    // --- UI Overlay (not affected by 'view') ---
+    screen.drawText("Score: " + player.score, 10, 10, 20, "white")
+    screen.drawText("Crystals: " + player.crystals_found + "/" + game_config.max_crystals, 10, 40, 20, "lightgreen")
+
+    // Player HP status (using 'elsetry' for waterfall logic)
+    if player.hp > game_config.initial_player_hp * 0.7 then
+      screen.drawText("Status: Healthy", screen.width - 10, 10, 20, "green", "right")
+    elsetry player.hp > game_config.initial_player_hp * 0.3 then
+      screen.drawText("Status: Injured", screen.width - 10, 10, 20, "orange", "right")
+      // 'alter' for a global screen effect (e.g., subtle red tint on low HP)
+      alter opacity=wave(system.time() * 5, 0.1), color="red" do
+        screen.fillRect(0,0,screen.width,screen.height) // Overlay a translucent red rectangle
+      end
+    else
+      screen.drawText("Status: Critical!", screen.width - 10, 10, 20, "red", "right")
+      alter opacity=wave(system.time() * 8, 0.2), color="red" do
+        screen.fillRect(0,0,screen.width,screen.height)
+      end
+    end
+  end
+
+  // --- Paused State ---
+  during "paused" do
+    screen.clear("rgba(0,0,0,0.7)") // Dark translucent overlay
+    screen.drawText("PAUSED", screen.width / 2, screen.height / 2 - 30, 40, "white", "center")
+    screen.drawText("Press [P] to Resume", screen.width / 2, screen.height / 2 + 20, 25, "lightblue", "center")
+    silence(game_config.music_main_theme) // Stop music while paused (using 'silence()')
+
+    if key("p").hit then
+      sfx("pause_toggle")
+      tune(game_config.music_main_theme, 0.6, true) // Resume music
+      transit("game")
+    end
+  end
+
+  // --- Game Over State ---
+  during "gameOver" do
+    silence("all") // Stop all sounds (music and sfx)
+    screen.clear("black")
+    screen.drawText("GAME OVER", screen.width / 2, screen.height / 3, 50, "red", "center")
+    screen.drawText("Your Score: " + player.score, screen.width / 2, screen.height / 2, 30, "white", "center")
+    screen.drawText("Press [SPACE] to Restart", screen.width / 2, screen.height / 2 + 60, 20, "gray", "center")
+    sfx(game_config.sfx_game_over) // Play game over sound once
+
+    if key("space").hit then
+      sfx("menu_select")
+      // Re-initialize the game to restart
+      init()
+    end
+  end
+
+  // --- Win State ---
+  during "win" do
+    silence("all")
+    screen.clear("rgb(0, 50, 0)") // Green background for win
+    screen.drawText("VICTORY!", screen.width / 2, screen.height / 3, 50, "gold", "center")
+    screen.drawText("You restored the Crystal of Harmony!", screen.width / 2, screen.height / 2, 30, "white", "center")
+    screen.drawText("Final Score: " + player.score, screen.width / 2, screen.height / 2 + 50, 25, "lightgreen", "center")
+    screen.drawText("Press [SPACE] to Return to Menu", screen.width / 2, screen.height / 2 + 100, 20, "gray", "center")
+    sfx(game_config.sfx_victory) // Play victory fanfare once
+
+    if key("space").hit then
+      sfx("menu_select")
+      init() // Re-initialize for menu (or create a dedicated menu transit)
+      transit("menu")
+    end
+  end
+end // End of update()
+
+// --- Additional MicroScript Context ---
+// In a microStudio project, this TiberScript would typically be
+// contained within a string and passed to a TiberEngine object.
+// The TiberEngine's update() function would then parse and execute
+// the appropriate 'during' blocks based on the current state.
+// For simplicity, here it's presented as if directly executable,
+// assuming a TiberEngine is interpreting the game flow.
+
+// Example of what the microScript `init` and `update` might look like
+// to run this TiberScript (as per the TiberScript documentation):
+/*
+Tiber = object
+  state = "menu" // This would be managed by TiberScript's transit()
+  player = null // references the TiberScript player object
+  enemies = []  // references the TiberScript enemies list
+  crystals = [] // references the TiberScript crystals list
+  npcs = []     // references the TiberScript npcs list
+  // ... other global game state managed by TiberScript
+
+  // Helper for TiberScript's 'collide' function
+  checkCollision = function(tag)
+    // Simplified collision check example
+    if tag == "player" then return Tiber.player else return null end
+    // In a real engine, this would iterate through objects with the tag
+    // and check against a specific source object (e.g., the player)
+  end
+
+  // Helper for TiberScript's 'near' function
+  checkNear = function(tag, distance)
+    // Simplified proximity check example
+    if tag == "npc" and distance(Tiber.player.x, Tiber.player.y, Tiber.npcs[0].x, Tiber.npcs[0].y) < distance then
+      return Tiber.npcs[0]
+    else
+      return null
+    end
+  end
+
+  run = function(tiberScriptCode)
+    // This is where the TiberEngine would parse and execute the TiberScript code.
+    // It would look for 'init()', 'update()', and 'during "state" do' blocks.
+    // For this example, imagine the TiberEngine handles all the execution
+    // based on the 'init()' and 'update()' functions provided above,
+    // and manages transitions between states.
+    // The `global.player` and similar accesses would be handled by the engine's scope.
+  end
+end
+
+init = function()
+  // This microScript init would typically just prepare the TiberEngine
+  // and load the TiberScript source.
+  // For this example, we assume `init()` function defined above is called directly.
+  _tiber_script_init_function() // Assume the TiberEngine calls this.
+end
+
+update = function()
+  // This microScript update would call the TiberEngine's update,
+  // which then executes the appropriate TiberScript 'update()' and 'during' blocks.
+  _tiber_script_update_function() // Assume the TiberEngine calls this.
+end
+*/
