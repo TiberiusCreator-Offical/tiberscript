@@ -91,7 +91,7 @@ player_archetype = archetype
       sfx(game_config.sfx_heal)
       emit("heal_particles", this.x, this.y, 10)
       print(this.name + " used a potion. HP: " + this.hp)
-    **elsetry** potion_index < 0 then // Changed from elsif to elsetry
+    elsetry potion_index < 0 then
       print("No healing potions left!")
     else
       print("Already at full health!")
@@ -269,7 +269,7 @@ quest_giver_npc = archetype extends character_archetype
           print(this.name + " whispers: 'Keep searching for those crystals!'")
         end
       end
-    **elsetry** global.player.crystals_found >= game_config.max_crystals then // Changed from elsif to elsetry
+    elsetry global.player.crystals_found >= game_config.max_crystals then
       print(this.name + " says: 'You've collected all the crystals! The world is saved!'")
       transit("win") // Transition to win state
     else
@@ -435,7 +435,7 @@ update() = function
     // Player HP status (using 'elsetry' for waterfall logic)
     if player.hp > game_config.initial_player_hp * 0.7 then
       screen.drawText("Status: Healthy", screen.width - 10, 10, 20, "green", "right")
-    **elsetry** player.hp > game_config.initial_player_hp * 0.3 then // Changed from elsif to elsetry
+    elsetry player.hp > game_config.initial_player_hp * 0.3 then
       screen.drawText("Status: Injured", screen.width - 10, 10, 20, "orange", "right")
       // 'alter' for a global screen effect (e.g., subtle red tint on low HP)
       alter opacity=wave(system.time() * 5, 0.1), color="red" do
