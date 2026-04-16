@@ -1,3 +1,5 @@
+---
+
 # The Official TiberScript 1.0 Handbook
 
 **Version:** 1.0
@@ -46,6 +48,31 @@ else
 end
 
 ```
+
+### Loops (`for`)
+
+Use `for` to repeat logic a set number of times. This is perfect for spawning multiple objects, drawing repeated elements, or processing a list.
+
+```tiberscript
+// Count up: runs for i = 1, 2, 3, 4, 5
+for i = 1 to 5
+  print("Lap " + i)
+end
+
+```
+
+You can also loop over a list using `for ... in`:
+
+```tiberscript
+loot = ["sword", "shield", "potion"]
+
+for item in loot
+  print("Found: " + item)
+end
+
+```
+
+> **Tip:** Use `for` inside a `during` block to draw or update many objects at once, like a row of enemies or a set of collectible coins.
 
 ### Data Structures (`data`)
 
@@ -262,8 +289,9 @@ emit("fire", x, y, 10)
 | Category | Keyword / Syntax | Description |
 | --- | --- | --- |
 | **Structure** | `archetype`, `data`, `init` | Defining classes and objects. |
-| **Flow** | `during "state" do` | managing game states. |
+| **Flow** | `during "state" do` | Managing game states. |
 | **Logic** | `elsetry`, `random(n)` | Control flow and math. |
+| **Loops** | `for i = 1 to n`, `for item in list` | Repeat logic or iterate a list. |
 | **Errors** | `attempt ... recover` | Try/Catch error handling. |
 | **Input** | `key("k").hit` / `.held` | Trigger vs Continuous input. |
 | **Visuals** | `alter ... do`, `view` | Scoped rendering and camera. |
@@ -317,7 +345,12 @@ end
 // --- 3. MAIN GAME LOOP ---
 init() = function
   player = new hero("Adventurer")
-  goblin = new enemy()
+  
+  // Spawn 3 enemies using a for loop
+  enemies = []
+  for i = 1 to 3
+    enemies.push(new enemy())
+  end
   
   tune("dungeon_theme")
   transit("play")
@@ -354,10 +387,12 @@ update() = function
       transit("gameOver")
     end
     
-    // Rendering
+    // Rendering — draw all enemies with a for loop
     view x=player.x, y=player.y do
       player.draw()
-      goblin.draw()
+      for e in enemies
+        e.draw()
+      end
     end
   end
 
