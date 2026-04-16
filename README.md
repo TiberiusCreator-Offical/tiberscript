@@ -1,5 +1,3 @@
----
-
 # The Official TiberScript 1.0 Handbook
 
 **Version:** 1.0
